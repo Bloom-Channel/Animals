@@ -1,8 +1,5 @@
 name: Post Animal Video to X
 on:
-  push:
-    branches: [main]
-    paths: ['**.mp4', '**.mov']
   schedule:
     - cron: '0 9 * * *'
   workflow_dispatch:
@@ -17,7 +14,7 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install tweepy requests requests-oauthlib
-      - name: Diagnose X API access
+      - name: Post latest video to X
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
@@ -25,56 +22,53 @@ jobs:
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
         run: |
           python3 - <<'PYEOF'
-          import os, sys, requests
+          import os, sys, glob, time, requests, tweepy
           from requests_oauthlib import OAuth1
+
           consumer_key = os.environ['X_API_KEY']
           consumer_secret = os.environ['X_API_SECRET']
           access_token = os.environ['X_ACCESS_TOKEN']
           access_token_secret = os.environ['X_ACCESS_TOKEN_SECRET']
+
+          # Find latest video
+          videos = sorted(glob.glob('**/*.mp4', recursive=True) + glob.glob('**/*.mov', recursive=True))
+          if not videos:
+              print('No videos found'); sys.exit(1)
+          video = videos[len(videos) % 7]  # rotate through videos daily
+          print(f'Posting: {video}')
+
+          # Upload media via v1.1 (works reliably)
+          auth1 = tweepy.OAuth1UserHandler(consumer_key, consumer_secret, access_token, access_token_secret)
+          api = tweepy.API(auth1)
+          media = api.media_upload(video)
+          media_id = media.media_id_string
+          print(f'Media uploaded: {media_id}')
+
+          # Post tweet via v2 with retries
           auth = OAuth1(consumer_key, consumer_secret, access_token, access_token_secret)
-          summary_file = os.environ.get('GITHUB_STEP_SUMMARY', '/dev/stdout')
-          def log(msg):
-              print(msg, flush=True)
-              with open(summary_file, 'a') as f:
-                  f.write(msg + '\n')
-          log('## X API Diagnosis')
-          log('')
-          log('### TEST 0: Unauthenticated GET /2/users/me (IP check)')
-          r0 = requests.get('https://api.twitter.com/2/users/me')
-          log(f'Status: {r0.status_code}')
-          log(f'Body: {r0.text[:300]}')
-          log('')
-          log('### TEST 1: GET /2/users/me (v2 read, OAuth1)')
-          r = requests.get('https://api.twitter.com/2/users/me', auth=auth)
-          log(f'Status: {r.status_code}')
-          log(f'Body: {r.text[:300]}')
-          log('')
-          log('### TEST 2: GET /1.1/account/verify_credentials.json')
-          r2 = requests.get('https://api.twitter.com/1.1/account/verify_credentials.json', auth=auth)
-          log(f'Status: {r2.status_code}')
-          log(f'Body: {r2.text[:200]}')
-          log('')
-          log('### TEST 3: POST /2/tweets (text-only, OAuth1)')
-          r3 = requests.post(
-              'https://api.twitter.com/2/tweets',
-              auth=auth,
-              json={'text': 'Diagnostic test'},
-              headers={'Content-Type': 'application/json'}
-          )
-          log(f'Status: {r3.status_code}')
-          log(f'Body: {r3.text[:500]}')
-          if r3.status_code == 201:
-              tid = r3.json()['data']['id']
-              requests.delete(f'https://api.twitter.com/2/tweets/{tid}', auth=auth)
-              log('SUCCESS - tweet posted and deleted')
-          log('')
-          log('### TEST 4: Runner IP address')
-          try:
-              ip = requests.get('https://api.ipify.org').text
-              log(f'Runner IP: {ip}')
-          except Exception as e:
-              log(f'IP check failed: {e}')
+          caption = os.path.splitext(os.path.basename(video))[0].replace('-', ' ').title()
+          payload = {'text': f'{caption} 🐾 #Animals #Nature', 'media': {'media_ids': [media_id]}}
+
+          for attempt in range(5):
+              r = requests.post(
+                  'https://api.twitter.com/2/tweets',
+                  auth=auth,
+                  json=payload,
+                  headers={'Content-Type': 'application/json'}
+              )
+              print(f'Attempt {attempt+1}: {r.status_code} {r.text[:200]}')
+              if r.status_code == 201:
+                  tweet_id = r.json()['data']['id']
+                  print(f'SUCCESS! Tweet posted: https://x.com/Animal2ky/status/{tweet_id}')
+                  sys.exit(0)
+              elif r.status_code == 503:
+                  wait = (attempt + 1) * 10
+                  print(f'503 - waiting {wait}s before retry...')
+                  time.sleep(wait)
+              else:
+                  print(f'Fatal error: {r.status_code}')
+                  sys.exit(1)
+
+          print('All retries failed')
+          sys.exit(1)
           PYEOF
-      - name: Post latest video to X
-        if: false
-        run: echo "disabled"
