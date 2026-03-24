@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install tweepy
+        run: pip install tweepy requests requests-oauthlib
 
       - name: Post latest video to X
         env:
@@ -30,18 +30,59 @@ jobs:
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
         run: |
           python3 << 'PYEOF'
-          import tweepy, os, glob, time, random, sys
+          import tweepy, os, glob, time, random, sys, requests
+          from requests_oauthlib import OAuth1
 
           consumer_key = os.environ['X_API_KEY']
           consumer_secret = os.environ['X_API_SECRET']
           access_token = os.environ['X_ACCESS_TOKEN']
           access_token_secret = os.environ['X_ACCESS_TOKEN_SECRET']
 
+          # Step 1: test text-only tweet via raw HTTP to diagnose 503
+          print("=== TEST: text-only tweet via raw HTTP ===")
+          auth = OAuth1(consumer_key, consumer_secret, access_token, access_token_secret)
+          r = requests.post(
+              'https://api.twitter.com/2/tweets',
+              auth=auth,
+              json={'text': 'Test post from automation #Animals'},
+              headers={'Content-Type': 'application/json'}
+          )
+          print(f"Status code: {r.status_code}")
+          print(f"Response body: {r.text}")
+
+          if r.status_code == 201:
+              print("TEXT TWEET SUCCEEDED!")
+              tweet_id = r.json()['data']['id']
+              print(f"Tweet ID: {tweet_id}")
+              # Delete the test tweet
+              requests.delete(f'https://api.twitter.com/2/tweets/{tweet_id}', auth=auth)
+              print("Deleted test tweet")
+          else:
+              print(f"TEXT TWEET FAILED with {r.status_code}")
+              print("This means create_tweet endpoint itself is broken for this account/app")
+              sys.exit(1)
+
+          # Step 2: upload video and post with media
           videos = sorted(glob.glob('*.mp4') + glob.glob('*.mov'), key=os.path.getmtime)
           if not videos:
               print("No videos found"); sys.exit(0)
           latest = videos[-1]
-          print(f"Posting: {latest}")
+          print(f"\n=== Posting video: {latest} ===")
+
+          tweepy_auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+          tweepy_auth.set_access_token(access_token, access_token_secret)
+          api = tweepy.API(tweepy_auth, wait_on_rate_limit=True)
+
+          media = api.media_upload(filename=latest, media_category='tweet_video', chunked=True)
+          print(f"Uploaded media_id: {media.media_id_string}")
+
+          for _ in range(60):
+              s = api.get_media_upload_status(media.media_id_string)
+              state = s.processing_info.get('state', 'succeeded')
+              print(f"Media state: {state}")
+              if state == 'succeeded': break
+              if state == 'failed': print("Media failed!"); sys.exit(1)
+              time.sleep(5)
 
           captions = [
               "Nature never gets old #Animals #Wildlife",
@@ -52,58 +93,19 @@ jobs:
           ]
           caption = random.choice(captions)
 
-          auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
-          auth.set_access_token(access_token, access_token_secret)
-          api = tweepy.API(auth, wait_on_rate_limit=True)
-
-          print("Uploading media...")
-          media = api.media_upload(filename=latest, media_category='tweet_video', chunked=True)
-          print(f"Uploaded media_id: {media.media_id_string}")
-
-          for _ in range(60):
-              s = api.get_media_upload_status(media.media_id_string)
-              state = s.processing_info.get('state', 'succeeded')
-              print(f"Media state: {state}")
-              if state == 'succeeded':
-                  break
-              if state == 'failed':
-                  print("Media processing failed!")
-                  sys.exit(1)
-              time.sleep(5)
-
-          client = tweepy.Client(
-              consumer_key=consumer_key,
-              consumer_secret=consumer_secret,
-              access_token=access_token,
-              access_token_secret=access_token_secret
+          r2 = requests.post(
+              'https://api.twitter.com/2/tweets',
+              auth=auth,
+              json={'text': caption, 'media': {'media_ids': [media.media_id_string]}},
+              headers={'Content-Type': 'application/json'}
           )
+          print(f"Video tweet status: {r2.status_code}")
+          print(f"Video tweet response: {r2.text}")
 
-          posted = False
-          for attempt in range(10):
-              try:
-                  tweet = client.create_tweet(
-                      text=caption,
-                      media_ids=[media.media_id_string],
-                      user_auth=True
-                  )
-                  print(f"Posted! Tweet ID: {tweet.data['id']}")
-                  print(f"URL: https://x.com/Animal2ky/status/{tweet.data['id']}")
-                  posted = True
-                  break
-              except tweepy.errors.TwitterServerError as e:
-                  print(f"503 attempt {attempt+1}/10: {e}")
-                  if attempt < 9:
-                      wait = 30 if attempt < 5 else 60
-                      print(f"Waiting {wait}s...")
-                      time.sleep(wait)
-              except tweepy.errors.Forbidden as e:
-                  print(f"403 Forbidden: {e}")
-                  sys.exit(1)
-              except Exception as e:
-                  print(f"Error: {type(e).__name__}: {e}")
-                  sys.exit(1)
-
-          if not posted:
-              print("All 10 attempts failed - tweet NOT posted")
+          if r2.status_code == 201:
+              tweet_id = r2.json()['data']['id']
+              print(f"Posted! URL: https://x.com/Animal2ky/status/{tweet_id}")
+          else:
+              print("Video tweet failed")
               sys.exit(1)
           PYEOF
