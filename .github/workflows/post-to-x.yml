@@ -39,7 +39,12 @@ jobs:
                   f.write(msg + '\n')
           log('## X API Diagnosis')
           log('')
-          log('### TEST 1: GET /2/users/me (v2 read)')
+          log('### TEST 0: Unauthenticated GET /2/users/me (IP check)')
+          r0 = requests.get('https://api.twitter.com/2/users/me')
+          log(f'Status: {r0.status_code}')
+          log(f'Body: {r0.text[:300]}')
+          log('')
+          log('### TEST 1: GET /2/users/me (v2 read, OAuth1)')
           r = requests.get('https://api.twitter.com/2/users/me', auth=auth)
           log(f'Status: {r.status_code}')
           log(f'Body: {r.text[:300]}')
@@ -47,9 +52,9 @@ jobs:
           log('### TEST 2: GET /1.1/account/verify_credentials.json')
           r2 = requests.get('https://api.twitter.com/1.1/account/verify_credentials.json', auth=auth)
           log(f'Status: {r2.status_code}')
-          log(f'Body: {r2.text[:300]}')
+          log(f'Body: {r2.text[:200]}')
           log('')
-          log('### TEST 3: POST /2/tweets (text-only)')
+          log('### TEST 3: POST /2/tweets (text-only, OAuth1)')
           r3 = requests.post(
               'https://api.twitter.com/2/tweets',
               auth=auth,
@@ -63,20 +68,12 @@ jobs:
               requests.delete(f'https://api.twitter.com/2/tweets/{tid}', auth=auth)
               log('SUCCESS - tweet posted and deleted')
           log('')
-          log('### TEST 4: tweepy.Client.create_tweet')
-          import tweepy
-          client = tweepy.Client(
-              consumer_key=consumer_key, consumer_secret=consumer_secret,
-              access_token=access_token, access_token_secret=access_token_secret
-          )
+          log('### TEST 4: Runner IP address')
           try:
-              resp = client.create_tweet(text='Tweepy diagnostic test')
-              log(f'tweepy status: {resp}')
-              if resp.data:
-                  client.delete_tweet(resp.data['id'])
-                  log('SUCCESS - tweepy tweet posted and deleted')
+              ip = requests.get('https://api.ipify.org').text
+              log(f'Runner IP: {ip}')
           except Exception as e:
-              log(f'tweepy error: {type(e).__name__}: {e}')
+              log(f'IP check failed: {e}')
           PYEOF
       - name: Post latest video to X
         if: false
