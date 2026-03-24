@@ -2,70 +2,70 @@ name: Post Animal Video to X
 
 on:
   push:
-      branches: [main]
-          paths: ['**.mp4', '**.mov']
-            schedule:
-                - cron: '0 9 * * *'
-                  workflow_dispatch:
+    branches: [main]
+    paths: ['**.mp4', '**.mov']
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
 
-                  jobs:
-                    post-to-x:
-                        runs-on: ubuntu-latest
-                            steps:
-                                  - uses: actions/checkout@v3
+jobs:
+  post-to-x:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
 
-                                        - name: Set up Python
-                                                uses: actions/setup-python@v4
-                                                        with:
-                                                                  python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-                                                                        - name: Install dependencies
-                                                                                run: pip install tweepy
+      - name: Install dependencies
+        run: pip install tweepy
 
-                                                                                      - name: Post latest video to X
-                                                                                              env:
-                                                                                                        X_API_KEY: ${{ secrets.X_API_KEY }}
-                                                                                                                  X_API_SECRET: ${{ secrets.X_API_SECRET }}
-                                                                                                                            X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
-                                                                                                                                      X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
-                                                                                                                                              run: |
-                                                                                                                                                        python3 << 'PYEOF'
-                                                                                                                                                                  import tweepy, os, glob, time, random
-                                                                                                                                                                  
-                                                                                                                                                                            videos = sorted(glob.glob('*.mp4') + glob.glob('*.mov'), key=os.path.getmtime)
-                                                                                                                                                                                      if not videos:
-                                                                                                                                                                                                    print("No videos found"); exit(0)
-                                                                                                                                                                                                              latest = videos[-1]
-                                                                                                                                                                                                                        print(f"Posting: {latest}")
-                                                                                                                                                                                                                        
-                                                                                                                                                                                                                                  auth = tweepy.OAuthHandler(os.environ['X_API_KEY'], os.environ['X_API_SECRET'])
-                                                                                                                                                                                                                                            auth.set_access_token(os.environ['X_ACCESS_TOKEN'], os.environ['X_ACCESS_TOKEN_SECRET'])
-                                                                                                                                                                                                                                                      api = tweepy.API(auth, wait_on_rate_limit=True)
-                                                                                                                                                                                                                                                      
-                                                                                                                                                                                                                                                                media = api.media_upload(filename=latest, media_category='tweet_video', chunked=True)
-                                                                                                                                                                                                                                                                          print(f"Uploaded media_id: {media.media_id_string}")
-                                                                                                                                                                                                                                                                          
-                                                                                                                                                                                                                                                                                    for _ in range(30):
-                                                                                                                                                                                                                                                                                                  s = api.get_media_upload_status(media.media_id_string)
-                                                                                                                                                                                                                                                                                                                state = s.processing_info.get('state', 'succeeded')
-                                                                                                                                                                                                                                                                                                                              print(f"State: {state}")
-                                                                                                                                                                                                                                                                                                                                            if state in ('succeeded', 'failed'): break
-                                                                                                                                                                                                                                                                                                                                                          time.sleep(5)
-                                                                                                                                                                                                                                                                                                                                                          
-                                                                                                                                                                                                                                                                                                                                                                    captions = [
-                                                                                                                                                                                                                                                                                                                                                                                  "Nature never gets old #Animals #Wildlife",
-                                                                                                                                                                                                                                                                                                                                                                                                "Amazing creatures sharing our world #Animals #Nature",
-                                                                                                                                                                                                                                                                                                                                                                                                              "Beauty in motion #Wildlife #NatureLovers",
-                                                                                                                                                                                                                                                                                                                                                                                                                            "The wild side of life #Animals #Wildlife",
-                                                                                                                                                                                                                                                                                                                                                                                                                                          "Nature at its finest #Animals #NatureLovers"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                    ]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                    
-                                                                                                                                                                                                                                                                                                                                                                                                                                                              client = tweepy.Client(
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                            consumer_key=os.environ['X_API_KEY'],
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          consumer_secret=os.environ['X_API_SECRET'],
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        access_token=os.environ['X_ACCESS_TOKEN'],
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      access_token_secret=os.environ['X_ACCESS_TOKEN_SECRET']
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                )
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          tweet = client.create_tweet(text=random.choice(captions), media_ids=[media.media_id_string])
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    print(f"Posted! ID: {tweet.data['id']}")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              PYEOF
+      - name: Post latest video to X
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+        run: |
+          python3 << 'PYEOF'
+          import tweepy, os, glob, time, random
+
+          videos = sorted(glob.glob('*.mp4') + glob.glob('*.mov'), key=os.path.getmtime)
+          if not videos:
+              print("No videos found"); exit(0)
+          latest = videos[-1]
+          print(f"Posting: {latest}")
+
+          auth = tweepy.OAuthHandler(os.environ['X_API_KEY'], os.environ['X_API_SECRET'])
+          auth.set_access_token(os.environ['X_ACCESS_TOKEN'], os.environ['X_ACCESS_TOKEN_SECRET'])
+          api = tweepy.API(auth, wait_on_rate_limit=True)
+
+          media = api.media_upload(filename=latest, media_category='tweet_video', chunked=True)
+          print(f"Uploaded media_id: {media.media_id_string}")
+
+          for _ in range(30):
+              s = api.get_media_upload_status(media.media_id_string)
+              state = s.processing_info.get('state', 'succeeded')
+              print(f"State: {state}")
+              if state in ('succeeded', 'failed'): break
+              time.sleep(5)
+
+          captions = [
+              "Nature never gets old #Animals #Wildlife",
+              "Amazing creatures sharing our world #Animals #Nature",
+              "Beauty in motion #Wildlife #NatureLovers",
+              "The wild side of life #Animals #Wildlife",
+              "Nature at its finest #Animals #NatureLovers"
+          ]
+
+          client = tweepy.Client(
+              consumer_key=os.environ['X_API_KEY'],
+              consumer_secret=os.environ['X_API_SECRET'],
+              access_token=os.environ['X_ACCESS_TOKEN'],
+              access_token_secret=os.environ['X_ACCESS_TOKEN_SECRET']
+          )
+          tweet = client.create_tweet(text=random.choice(captions), media_ids=[media.media_id_string])
+          print(f"Posted! ID: {tweet.data['id']}")
+          PYEOF
