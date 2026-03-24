@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: pip install tweepy requests requests-oauthlib
 
-      - name: Post latest video to X
+      - name: Diagnose X API access
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
@@ -30,82 +30,41 @@ jobs:
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
         run: |
           python3 << 'PYEOF'
-          import tweepy, os, glob, time, random, sys, requests
+          import os, sys, requests
           from requests_oauthlib import OAuth1
 
           consumer_key = os.environ['X_API_KEY']
           consumer_secret = os.environ['X_API_SECRET']
           access_token = os.environ['X_ACCESS_TOKEN']
           access_token_secret = os.environ['X_ACCESS_TOKEN_SECRET']
-
-          # Step 1: test text-only tweet via raw HTTP to diagnose 503
-          print("=== TEST: text-only tweet via raw HTTP ===")
           auth = OAuth1(consumer_key, consumer_secret, access_token, access_token_secret)
-          r = requests.post(
+
+          print("=== TEST 1: GET /2/users/me (read, v2) ===")
+          r = requests.get('https://api.twitter.com/2/users/me', auth=auth)
+          print(f"Status: {r.status_code}")
+          print(f"Body: {r.text}")
+
+          print("\n=== TEST 2: GET /1.1/account/verify_credentials.json (read, v1.1) ===")
+          r2 = requests.get('https://api.twitter.com/1.1/account/verify_credentials.json', auth=auth)
+          print(f"Status: {r2.status_code}")
+          print(f"Body: {r2.text[:500]}")
+
+          print("\n=== TEST 3: POST /2/tweets text-only ===")
+          r3 = requests.post(
               'https://api.twitter.com/2/tweets',
               auth=auth,
-              json={'text': 'Test post from automation #Animals'},
+              json={'text': 'Test #Animals'},
               headers={'Content-Type': 'application/json'}
           )
-          print(f"Status code: {r.status_code}")
-          print(f"Response body: {r.text}")
+          print(f"Status: {r3.status_code}")
+          print(f"Body: {r3.text}")
 
-          if r.status_code == 201:
-              print("TEXT TWEET SUCCEEDED!")
-              tweet_id = r.json()['data']['id']
-              print(f"Tweet ID: {tweet_id}")
-              # Delete the test tweet
+          if r3.status_code == 201:
+              tweet_id = r3.json()['data']['id']
               requests.delete(f'https://api.twitter.com/2/tweets/{tweet_id}', auth=auth)
-              print("Deleted test tweet")
-          else:
-              print(f"TEXT TWEET FAILED with {r.status_code}")
-              print("This means create_tweet endpoint itself is broken for this account/app")
-              sys.exit(1)
-
-          # Step 2: upload video and post with media
-          videos = sorted(glob.glob('*.mp4') + glob.glob('*.mov'), key=os.path.getmtime)
-          if not videos:
-              print("No videos found"); sys.exit(0)
-          latest = videos[-1]
-          print(f"\n=== Posting video: {latest} ===")
-
-          tweepy_auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
-          tweepy_auth.set_access_token(access_token, access_token_secret)
-          api = tweepy.API(tweepy_auth, wait_on_rate_limit=True)
-
-          media = api.media_upload(filename=latest, media_category='tweet_video', chunked=True)
-          print(f"Uploaded media_id: {media.media_id_string}")
-
-          for _ in range(60):
-              s = api.get_media_upload_status(media.media_id_string)
-              state = s.processing_info.get('state', 'succeeded')
-              print(f"Media state: {state}")
-              if state == 'succeeded': break
-              if state == 'failed': print("Media failed!"); sys.exit(1)
-              time.sleep(5)
-
-          captions = [
-              "Nature never gets old #Animals #Wildlife",
-              "Amazing creatures sharing our world #Animals #Nature",
-              "Beauty in motion #Wildlife #NatureLovers",
-              "The wild side of life #Animals #Wildlife",
-              "Nature at its finest #Animals #NatureLovers"
-          ]
-          caption = random.choice(captions)
-
-          r2 = requests.post(
-              'https://api.twitter.com/2/tweets',
-              auth=auth,
-              json={'text': caption, 'media': {'media_ids': [media.media_id_string]}},
-              headers={'Content-Type': 'application/json'}
-          )
-          print(f"Video tweet status: {r2.status_code}")
-          print(f"Video tweet response: {r2.text}")
-
-          if r2.status_code == 201:
-              tweet_id = r2.json()['data']['id']
-              print(f"Posted! URL: https://x.com/Animal2ky/status/{tweet_id}")
-          else:
-              print("Video tweet failed")
-              sys.exit(1)
+              print("Tweet posted and deleted!")
           PYEOF
+
+      - name: Post latest video to X
+        if: false
+        run: echo "disabled until diagnosis complete"
