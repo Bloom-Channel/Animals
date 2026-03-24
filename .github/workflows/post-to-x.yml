@@ -30,27 +30,18 @@ jobs:
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
         run: |
           python3 << 'PYEOF'
-          import tweepy, os, glob, time, random
+          import tweepy, os, glob, time, random, sys
+
+          consumer_key = os.environ['X_API_KEY']
+          consumer_secret = os.environ['X_API_SECRET']
+          access_token = os.environ['X_ACCESS_TOKEN']
+          access_token_secret = os.environ['X_ACCESS_TOKEN_SECRET']
 
           videos = sorted(glob.glob('*.mp4') + glob.glob('*.mov'), key=os.path.getmtime)
           if not videos:
-              print("No videos found"); exit(0)
+              print("No videos found"); sys.exit(0)
           latest = videos[-1]
           print(f"Posting: {latest}")
-
-          auth = tweepy.OAuthHandler(os.environ['X_API_KEY'], os.environ['X_API_SECRET'])
-          auth.set_access_token(os.environ['X_ACCESS_TOKEN'], os.environ['X_ACCESS_TOKEN_SECRET'])
-          api = tweepy.API(auth, wait_on_rate_limit=True)
-
-          media = api.media_upload(filename=latest, media_category='tweet_video', chunked=True)
-          print(f"Uploaded media_id: {media.media_id_string}")
-
-          for _ in range(30):
-              s = api.get_media_upload_status(media.media_id_string)
-              state = s.processing_info.get('state', 'succeeded')
-              print(f"State: {state}")
-              if state in ('succeeded', 'failed'): break
-              time.sleep(5)
 
           captions = [
               "Nature never gets old #Animals #Wildlife",
@@ -59,24 +50,60 @@ jobs:
               "The wild side of life #Animals #Wildlife",
               "Nature at its finest #Animals #NatureLovers"
           ]
-
           caption = random.choice(captions)
+
+          auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+          auth.set_access_token(access_token, access_token_secret)
+          api = tweepy.API(auth, wait_on_rate_limit=True)
+
+          print("Uploading media...")
+          media = api.media_upload(filename=latest, media_category='tweet_video', chunked=True)
+          print(f"Uploaded media_id: {media.media_id_string}")
+
+          for _ in range(60):
+              s = api.get_media_upload_status(media.media_id_string)
+              state = s.processing_info.get('state', 'succeeded')
+              print(f"Media state: {state}")
+              if state == 'succeeded':
+                  break
+              if state == 'failed':
+                  print("Media processing failed!")
+                  sys.exit(1)
+              time.sleep(5)
+
           client = tweepy.Client(
-              consumer_key=os.environ['X_API_KEY'],
-              consumer_secret=os.environ['X_API_SECRET'],
-              access_token=os.environ['X_ACCESS_TOKEN'],
-              access_token_secret=os.environ['X_ACCESS_TOKEN_SECRET']
+              consumer_key=consumer_key,
+              consumer_secret=consumer_secret,
+              access_token=access_token,
+              access_token_secret=access_token_secret
           )
-          for attempt in range(5):
+
+          posted = False
+          for attempt in range(10):
               try:
-                  tweet = client.create_tweet(text=caption, media_ids=[media.media_id_string])
-                  print(f"Posted! ID: {tweet.data['id']}")
+                  tweet = client.create_tweet(
+                      text=caption,
+                      media_ids=[media.media_id_string],
+                      user_auth=True
+                  )
+                  print(f"Posted! Tweet ID: {tweet.data['id']}")
+                  print(f"URL: https://x.com/Animal2ky/status/{tweet.data['id']}")
+                  posted = True
                   break
               except tweepy.errors.TwitterServerError as e:
-                  print(f"503 server error attempt {attempt+1}/5: {e}")
-                  if attempt < 4:
-                      time.sleep(30)
+                  print(f"503 attempt {attempt+1}/10: {e}")
+                  if attempt < 9:
+                      wait = 30 if attempt < 5 else 60
+                      print(f"Waiting {wait}s...")
+                      time.sleep(wait)
+              except tweepy.errors.Forbidden as e:
+                  print(f"403 Forbidden: {e}")
+                  sys.exit(1)
               except Exception as e:
-                  print(f"Error: {e}")
-                  raise
+                  print(f"Error: {type(e).__name__}: {e}")
+                  sys.exit(1)
+
+          if not posted:
+              print("All 10 attempts failed - tweet NOT posted")
+              sys.exit(1)
           PYEOF
