@@ -61,15 +61,21 @@ jobs:
           ]
 
           caption = random.choice(captions)
+          client = tweepy.Client(
+              consumer_key=os.environ['X_API_KEY'],
+              consumer_secret=os.environ['X_API_SECRET'],
+              access_token=os.environ['X_ACCESS_TOKEN'],
+              access_token_secret=os.environ['X_ACCESS_TOKEN_SECRET']
+          )
           for attempt in range(5):
               try:
-                  tweet = api.update_status(status=caption, media_ids=[media.media_id_string])
-                  print(f"Posted! ID: {tweet.id_str}")
+                  tweet = client.create_tweet(text=caption, media_ids=[media.media_id_string])
+                  print(f"Posted! ID: {tweet.data['id']}")
                   break
               except tweepy.errors.TwitterServerError as e:
-                  print(f"Server error (attempt {attempt+1}/5): {e}")
+                  print(f"503 server error attempt {attempt+1}/5: {e}")
                   if attempt < 4:
-                      time.sleep(15)
+                      time.sleep(30)
               except Exception as e:
                   print(f"Error: {e}")
                   raise
